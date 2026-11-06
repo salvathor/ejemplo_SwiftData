@@ -141,6 +141,11 @@ struct TareasView: View{
 struct ContentView: View {
     var body: some View {
         TareasView()
+            // `.task` ejecuta trabajo asíncrono cuando la vista aparece
+            // y lo cancela automáticamente si la vista desaparece.
+            .task {
+                await obtenerUsuario()
+            }
     }
 }
 
