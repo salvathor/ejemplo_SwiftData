@@ -7,7 +7,9 @@ Ejemplo mínimo de **SwiftData** con SwiftUI: una lista de tareas en la que el u
 | Archivo | Contenido |
 | --- | --- |
 | `SwiftData_ejemplo/MyApp.swift` | Punto de entrada. Configura el `ModelContainer`. |
-| `SwiftData_ejemplo/ContentView.swift` | Modelo `Tarea`, la vista `TareasView` y sus acciones `agregarTarea()` / `borrar(_:)`. |
+| `SwiftData_ejemplo/ContentView.swift` | Modelo `Tarea`, la vista `TareasView` y sus acciones `agregarTarea()` / `borrar(_:)`. `ContentView` llama a `obtenerUsuario()` con `.task`. |
+| `SwiftData_ejemplo/Util.swift` | Petición HTTP con `async/await` y decodificación de JSON (`Usuario`). |
+| `SwiftData_ejemplo/CorreoReactivo.swift` | Validación de correo en tiempo real con Combine. |
 
 ## Las 4 piezas de SwiftData en este proyecto
 
@@ -118,6 +120,66 @@ List {
     }
 }
 ```
+
+## Red: `async/await` + `Codable` (`Util.swift`)
+
+`obtenerUsuario()` descarga `https://jsonplaceholder.typicode.com/users/1` y lo imprime en la consola.
+
+```swift
+// ContentView.swift
+TareasView()
+    .task { await obtenerUsuario() }   // se ejecuta al aparecer la vista
+```
+
+| Paso | Código | Explicación |
+| --- | --- | --- |
+| 1. URL | `guard let url = URL(string: "...") else { return }` | `URL(string:)` devuelve un opcional. |
+| 2. Petición | `var request = URLRequest(url: url)` | Permite configurar método, headers, etc. |
+| 3. Ejecutar | `try await URLSession.shared.data(for: request)` | Devuelve `(Data, URLResponse)`. |
+| 4. Validar | `(response as? HTTPURLResponse)?.statusCode == 200` | Rechaza respuestas que no sean 200. |
+| 5. Decodificar | `try JSONDecoder().decode(Usuario.self, from: data)` | Convierte el JSON en un `Usuario`. |
+
+```swift
+struct Usuario: Decodable {
+    let id: Int
+    let name: String
+    let username: String
+    let email: String
+}
+```
+
+**Errores comunes:**
+
+- **`Task { }` dentro de `body`:** `Task` no es una vista. Usa el modificador `.task { }`.
+- **`CodingKeys`:** el valor después de `=` es la clave **real** del JSON, no una traducción. `case nombre = "name"` ✅, `case name = "nombre"` ❌ (el decoder buscaría `"nombre"` y fallaría).
+- **Depurar errores de decodificación:** usa `print(error)` en el `catch`; `error.localizedDescription` oculta qué clave falló.
+
+> `Usuario` es un `struct` normal, **no** un `@Model`: no se guarda con SwiftData. Para persistirlo habría que crear un modelo `@Model` y hacer `context.insert(...)` con los datos recibidos.
+
+## Programación reactiva con Combine (`CorreoReactivo.swift`)
+
+Valida un correo mientras el usuario escribe, pero solo cuando deja de teclear durante 500 ms.
+
+```
+TextField ─onChange─▶ correoSubject.send(texto)
+                         │
+                         ▼ .debounce(500 ms)   espera a que el usuario deje de escribir
+                         ▼ .map { regex }      String → Bool
+                         ▼ .onReceive          actualiza esValido / mostrarResultado
+                       Text("Correo válido" / "Correo inválido")
+```
+
+| Pieza | Para qué sirve |
+| --- | --- |
+| `PassthroughSubject<String, Never>` | Publisher al que se le envían valores con `send(_:)`. `Never` = nunca falla. |
+| `.onChange(of: correo)` | Envía cada cambio del texto al subject. |
+| `.debounce(for:scheduler:)` | Descarta valores intermedios y emite solo el último tras la pausa. |
+| `.map { ... }` | Transforma el texto en `true`/`false` con una expresión regular. |
+| `.onReceive(_:perform:)` | Suscribe la vista al publisher; SwiftUI cancela la suscripción automáticamente. |
+
+Patrón de la expresión regular: `^[A-Z0-9a-z._%+-]+@[A-Z0-9a-z.-]+\.[A-Za-z]{2,}$` → `usuario@dominio.ext` (extensión de 2+ letras).
+
+> Combine sigue funcionando, pero en código nuevo Apple recomienda `async/await`. El mismo debounce se puede hacer con `.task(id: correo) { try? await Task.sleep(for: .milliseconds(500)); ... }`.
 
 ## Previews
 

@@ -143,6 +143,7 @@ struct ContentView: View {
         TareasView()
             // `.task` ejecuta trabajo asíncrono cuando la vista aparece
             // y lo cancela automáticamente si la vista desaparece.
+            // Aquí descarga un usuario de la API (ver `Util.swift`).
             .task {
                 await obtenerUsuario()
             }
